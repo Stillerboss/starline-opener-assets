@@ -14,4 +14,6 @@ A slim catalogue index: the CS2 weapon cases and the skins they drop (knives and
 
 `gen` comes from the content hash and is part of the file names, so a cached answer never mixes two versions.
 Built by `tools/make_opener_index.py` from item data of the [ByMykel CSGO-API](https://github.com/ByMykel/CSGO-API).
-Item images are not stored here; the script loads Valve's official images from the Steam CDN.
+Item images are not stored here; the script loads Valve's official images from the Steam CDN, and each case's
+"Rare Special Item" tile (an image from the game files) from ByMykel's counter-strike-image-tracker - a crates
+line carries that tile's URL and name in fields 7 and 8 (empty: the game's default tile).
