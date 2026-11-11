@@ -1,0 +1,99 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="referrer" content="strict-origin-when-cross-origin">
+<title>slc-player</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#0b0e14;color:#d5dbe6;font:12px/1.35 "Segoe UI",Arial,sans-serif}
+#box,#box video,#box iframe,#yt{position:absolute;left:0;top:0;width:100%;height:100%;border:0;background:#000}
+#bar{position:absolute;left:0;right:0;bottom:0;padding:5px 9px;background:linear-gradient(transparent,rgba(0,0,0,.8));white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+#tap{position:absolute;left:0;top:0;right:0;bottom:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.65);font-size:15px;cursor:pointer}
+</style></head>
+<body><div id="box"></div><div id="bar">slc-player</div><div id="tap">&#9654; Click to play</div>
+<script>
+(function () {
+  // Starline Case Opener media page: every command arrives as a new #fragment (k kind, l list, i start, v volume,
+  // sh shuffle, n serial, c command) - CS2's HTML panels cannot run script from outside the page
+  var S = { sig: '', k: '', list: [], i: 0, v: 35, sh: false, n: '', el: null, yt: null, api: 0 };
+  var box = document.getElementById('box'), bar = document.getElementById('bar'), tap = document.getElementById('tap');
+  var local = location.protocol === 'file:';
+  function args() { var o = {}; location.hash.slice(1).split('&').forEach(function (kv) { var j = kv.indexOf('='); if (j > 0) o[kv.slice(0, j)] = kv.slice(j + 1); }); return o; }
+  function say(t) { bar.textContent = t; document.title = 'slc: ' + t; }
+  function clear() { if (S.yt) { try { S.yt.destroy(); } catch (e) {} S.yt = null; } box.innerHTML = ''; S.el = null; tap.style.display = 'none'; }
+  function volume() {
+    var v = Math.max(0, Math.min(100, S.v));
+    if (S.el) { S.el.volume = v / 100; S.el.muted = v === 0; }
+    if (S.yt && S.yt.setVolume) { S.yt.setVolume(v); if (v > 0) S.yt.unMute(); else S.yt.mute(); }
+  }
+  function start(p) { if (p && p.catch) p.catch(function () { tap.style.display = 'flex'; say('Click the video to start'); }); }
+  function file() {
+    var name = S.list[S.i]; if (!name) return;
+    if (!S.el) {
+      S.el = document.createElement('video'); S.el.controls = true; S.el.playsInline = true; box.appendChild(S.el);
+      S.el.onended = function () { next(1); };
+      S.el.onerror = function () { say('Cannot play ' + S.list[S.i]); if (S.list.length > 1) setTimeout(function () { next(1); }, 1500); };
+    }
+    S.el.src = encodeURIComponent(name); volume();
+    say((S.i + 1) + ' / ' + S.list.length + '   ' + name.replace(/\.[^.]+$/, ''));
+    start(S.el.play());
+  }
+  function tube() {
+    var id = S.list[S.i]; if (!id) return;
+    if (!window.YT || !YT.Player) {
+      if (!S.api) { S.api = 1; var s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); say('Loading YouTube'); }
+      return;
+    }
+    if (S.yt && S.yt.loadVideoById) { S.yt.loadVideoById(id); volume(); return; }
+    box.innerHTML = '<div id="yt"></div>';
+    S.yt = new YT.Player('yt', { width: '100%', height: '100%', videoId: id,
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: location.origin },
+      events: {
+        onReady: function (e) {
+          volume(); e.target.playVideo();
+          setTimeout(function () { if (S.yt && S.yt.getPlayerState && S.yt.getPlayerState() !== 1) { tap.style.display = 'flex'; } }, 2500);
+        },
+        onStateChange: function (e) {
+          if (e.data === 1) {
+            tap.style.display = 'none'; volume();
+            var d = S.yt.getVideoData ? S.yt.getVideoData() : null;
+            say((S.list.length > 1 ? (S.i + 1) + ' / ' + S.list.length + '   ' : '') + (d && d.title ? d.title : id));
+          }
+          if (e.data === 0) next(1);
+        },
+        onError: function (e) {
+          say('YouTube error ' + e.data + ((e.data === 150 || e.data === 101) ? ' (the owner blocks embedding)' : ''));
+          if (S.list.length > 1) setTimeout(function () { next(1); }, 2000);
+        }
+      } });
+  }
+  window.onYouTubeIframeAPIReady = tube;
+  function spot() { box.innerHTML = '<iframe allow="autoplay; encrypted-media" src="https://open.spotify.com/embed/' + S.list[S.i] + '"></iframe>'; say('Spotify (30 s previews)'); }
+  function play() { if (S.k === 'f') file(); else if (S.k === 'y') tube(); else if (S.k === 's') spot(); }
+  function next(d) {
+    var n = S.list.length; if (!n) return;
+    S.i = (S.sh && n > 1) ? (S.i + 1 + Math.floor(Math.random() * (n - 1))) % n : (S.i + d + n) % n;
+    play();
+  }
+  function apply() {
+    var o = args(), ok = /^[ys]$/.test(o.k || '') || (local && o.k === 'f');
+    if (!ok) { clear(); S.sig = ''; say('slc-player'); return; }
+    var list = (o.l || '').split('|').map(function (x) { try { return decodeURIComponent(x); } catch (e) { return ''; } }).filter(function (x) {
+      return o.k === 'y' ? /^[A-Za-z0-9_-]{11}$/.test(x)
+        : o.k === 's' ? /^(track|album|playlist|episode|show|artist)\/[A-Za-z0-9]{22}$/.test(x)
+        : (x !== '' && !/[\/\\:]/.test(x));
+    });
+    S.v = +o.v || 0; S.sh = o.sh === '1';
+    var sig = o.k + '|' + list.join('|');
+    if (sig !== S.sig) { S.sig = sig; clear(); S.k = o.k; S.list = list; S.i = Math.min(+o.i || 0, Math.max(list.length - 1, 0)); S.n = o.n; play(); return; }
+    if (o.n !== S.n) {
+      S.n = o.n;
+      if (o.c === 'next') next(1);
+      else if (o.c === 'prev') next(-1);
+      else if (o.c === 'pause') { if (S.el) S.el.pause(); if (S.yt && S.yt.pauseVideo) S.yt.pauseVideo(); }
+      else if (o.c === 'play') { if (S.el) start(S.el.play()); if (S.yt && S.yt.playVideo) S.yt.playVideo(); }
+    }
+    volume();
+  }
+  tap.onclick = function () { tap.style.display = 'none'; if (S.el) start(S.el.play()); else if (S.yt && S.yt.playVideo) S.yt.playVideo(); };
+  window.addEventListener('hashchange', apply);
+  apply();
+})();
+</script></body></html>
