@@ -11,29 +11,44 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0b0e14;color:#d5dbe6;
 <script>
 (function () {
   // Starline Case Opener media page: every command arrives as a new #fragment (k kind, l list, i start, v volume,
-  // sh shuffle, n serial, c command) - CS2's HTML panels cannot run script from outside the page
-  var S = { sig: '', k: '', list: [], i: 0, v: 35, sh: false, n: '', el: null, yt: null, api: 0 };
+  // sh shuffle, e a meme reaction, n serial, c command) - CS2's HTML panels cannot run script from outside the page.
+  // A meme reaction plays once; a clip that has not started after 4.5 s (an ad, a block) is noted and the next one plays.
+  var S = { sig: '', k: '', list: [], i: 0, v: 35, sh: false, e: false, n: '', el: null, yt: null, api: 0 };
   var box = document.getElementById('box'), bar = document.getElementById('bar'), tap = document.getElementById('tap');
   var local = location.protocol === 'file:';
   function args() { var o = {}; location.hash.slice(1).split('&').forEach(function (kv) { var j = kv.indexOf('='); if (j > 0) o[kv.slice(0, j)] = kv.slice(j + 1); }); return o; }
   function say(t) { bar.textContent = t; document.title = 'slc: ' + t; }
   function clear() { if (S.yt) { try { S.yt.destroy(); } catch (e) {} S.yt = null; } box.innerHTML = ''; S.el = null; tap.style.display = 'none'; }
+  function marked() { try { return (localStorage.getItem('slcAd') || '').split(','); } catch (e) { return []; } }
+  function mark(id) { try { var a = marked(); if (a.indexOf(id) < 0) { a.push(id); localStorage.setItem('slcAd', a.slice(-60).join(',')); } } catch (e) {} }
+  function done() { clear(); S.sig = ''; say(''); }
   function volume() {
     var v = Math.max(0, Math.min(100, S.v));
     if (S.el) { S.el.volume = v / 100; S.el.muted = v === 0; }
     if (S.yt && S.yt.setVolume) { S.yt.setVolume(v); if (v > 0) S.yt.unMute(); else S.yt.mute(); }
   }
-  function start(p) { if (p && p.catch) p.catch(function () { tap.style.display = 'flex'; say('Click the video to start'); }); }
+  function start(p) { if (p && p.catch) p.catch(function () { if (S.e) { done(); return; } tap.style.display = 'flex'; say('Click the video to start'); }); }
   function file() {
     var name = S.list[S.i]; if (!name) return;
     if (!S.el) {
-      S.el = document.createElement('video'); S.el.controls = true; S.el.playsInline = true; box.appendChild(S.el);
-      S.el.onended = function () { next(1); };
-      S.el.onerror = function () { say('Cannot play ' + S.list[S.i]); if (S.list.length > 1) setTimeout(function () { next(1); }, 1500); };
+      S.el = document.createElement('video'); S.el.controls = !S.e; S.el.playsInline = true; box.appendChild(S.el);
+      S.el.onended = function () { if (S.e) done(); else next(1); };
+      S.el.onerror = function () { say('Cannot play ' + S.list[S.i]); if (S.e) { setTimeout(done, 800); return; } if (S.list.length > 1) setTimeout(function () { next(1); }, 1500); };
     }
-    S.el.src = encodeURIComponent(name); volume();
-    say((S.i + 1) + ' / ' + S.list.length + '   ' + name.replace(/\.[^.]+$/, ''));
+    S.el.src = name.split('/').map(encodeURIComponent).join('/'); volume();
+    say((S.e ? '' : (S.i + 1) + ' / ' + S.list.length + '   ') + name.replace(/^events\//, '').replace(/\.[^.]+$/, ''));
     start(S.el.play());
+  }
+  function guard() {
+    if (!S.e) return;
+    var id = S.list[S.i], yt = S.yt;
+    setTimeout(function () {
+      if (!S.yt || S.yt !== yt || S.list[S.i] !== id) return;
+      var t = 0; try { t = S.yt.getCurrentTime(); } catch (e) {}
+      if (t >= 1) return;
+      mark(id);
+      if (S.i + 1 < S.list.length) { S.i++; S.yt.loadVideoById(S.list[S.i]); guard(); } else done();
+    }, 4500);
   }
   function tube() {
     var id = S.list[S.i]; if (!id) return;
@@ -41,25 +56,26 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0b0e14;color:#d5dbe6;
       if (!S.api) { S.api = 1; var s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.appendChild(s); say('Loading YouTube'); }
       return;
     }
-    if (S.yt && S.yt.loadVideoById) { S.yt.loadVideoById(id); volume(); return; }
+    if (S.yt && S.yt.loadVideoById) { S.yt.loadVideoById(id); volume(); guard(); return; }
     box.innerHTML = '<div id="yt"></div>';
     S.yt = new YT.Player('yt', { width: '100%', height: '100%', videoId: id,
-      playerVars: { autoplay: 1, playsinline: 1, rel: 0, origin: location.origin },
+      playerVars: { autoplay: 1, playsinline: 1, rel: 0, controls: S.e ? 0 : 1, origin: location.origin },
       events: {
         onReady: function (e) {
-          volume(); e.target.playVideo();
-          setTimeout(function () { if (S.yt && S.yt.getPlayerState && S.yt.getPlayerState() !== 1) { tap.style.display = 'flex'; } }, 2500);
+          volume(); e.target.playVideo(); guard();
+          if (!S.e) setTimeout(function () { if (S.yt && S.yt.getPlayerState && S.yt.getPlayerState() !== 1) { tap.style.display = 'flex'; } }, 2500);
         },
         onStateChange: function (e) {
           if (e.data === 1) {
             tap.style.display = 'none'; volume();
             var d = S.yt.getVideoData ? S.yt.getVideoData() : null;
-            say((S.list.length > 1 ? (S.i + 1) + ' / ' + S.list.length + '   ' : '') + (d && d.title ? d.title : id));
+            say((S.list.length > 1 && !S.e ? (S.i + 1) + ' / ' + S.list.length + '   ' : '') + (d && d.title ? d.title : id));
           }
-          if (e.data === 0) next(1);
+          if (e.data === 0) { if (S.e) done(); else next(1); }
         },
         onError: function (e) {
           say('YouTube error ' + e.data + ((e.data === 150 || e.data === 101) ? ' (the owner blocks embedding)' : ''));
+          if (S.e) { mark(S.list[S.i]); if (S.i + 1 < S.list.length) { S.i++; setTimeout(tube, 300); } else setTimeout(done, 800); return; }
           if (S.list.length > 1) setTimeout(function () { next(1); }, 2000);
         }
       } });
@@ -78,10 +94,11 @@ html,body{margin:0;height:100%;overflow:hidden;background:#0b0e14;color:#d5dbe6;
     var list = (o.l || '').split('|').map(function (x) { try { return decodeURIComponent(x); } catch (e) { return ''; } }).filter(function (x) {
       return o.k === 'y' ? /^[A-Za-z0-9_-]{11}$/.test(x)
         : o.k === 's' ? /^(track|album|playlist|episode|show|artist)\/[A-Za-z0-9]{22}$/.test(x)
-        : (x !== '' && !/[\/\\:]/.test(x));
+        : (x !== '' && (/^events\/[^\/\\:]+$/.test(x) || !/[\/\\:]/.test(x)));
     });
-    S.v = +o.v || 0; S.sh = o.sh === '1';
-    var sig = o.k + '|' + list.join('|');
+    S.v = +o.v || 0; S.sh = o.sh === '1'; S.e = o.e === '1';
+    if (S.e && o.k === 'y') { var ads = marked(), fresh = list.filter(function (x) { return ads.indexOf(x) < 0; }); if (fresh.length) list = fresh; }
+    var sig = o.k + '|' + list.join('|') + '|' + (S.e ? o.n : '');
     if (sig !== S.sig) { S.sig = sig; clear(); S.k = o.k; S.list = list; S.i = Math.min(+o.i || 0, Math.max(list.length - 1, 0)); S.n = o.n; play(); return; }
     if (o.n !== S.n) {
       S.n = o.n;
